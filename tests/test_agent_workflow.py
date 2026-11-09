@@ -38,6 +38,24 @@ def test_offline_mode_proposes_logging_fix_for_print():
     assert "logging.info(" in fixed
 
 
+def test_unparseable_heuristic_fix_is_not_autofixed():
+    # Only a Low severity issue (print), so severity alone would score 95 and autofix.
+    # But the heuristic fixer prepends `import logging`, which pushes the
+    # __future__ import off the top of the file and makes the fix a SyntaxError.
+    # The ast.parse guardrail must catch this and block auto-apply.
+    agent = BugHoundAgent(client=None)
+    code = "from __future__ import annotations\n\ndef f():\n    print('hi')\n    return True\n"
+    result = agent.run(code)
+
+    compile(code, "<original>", "exec")  # original is valid
+    assert "import logging" in result["fixed_code"]  # the heuristic fix did run
+
+    risk = result["risk"]
+    assert risk["should_autofix"] is False
+    assert risk["level"] != "low"
+    assert any("does not parse" in r for r in risk["reasons"])
+
+
 def test_mock_client_forces_llm_fallback_to_heuristics_for_analysis():
     # MockClient returns non-JSON for analyzer prompts, so agent should fall back.
     agent = BugHoundAgent(client=MockClient())

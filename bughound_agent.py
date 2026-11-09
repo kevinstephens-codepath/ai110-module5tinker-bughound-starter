@@ -86,7 +86,21 @@ class BugHoundAgent:
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
-            self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
+            # Reliability: retry once with a stricter format reminder before giving up
+            self._log("ANALYZE", "LLM output was not parseable JSON. Retrying once with a stricter prompt.")
+            retry_prompt = (
+                user_prompt
+                + "\n\nYour previous reply was not valid JSON. Respond with ONLY a JSON array of "
+                'objects with keys "type", "severity", "msg". No prose, no markdown fences.'
+            )
+            try:
+                raw = self.client.complete(system_prompt=system_prompt, user_prompt=retry_prompt)
+                issues = self._parse_json_array_of_issues(raw)
+            except Exception as e:
+                self._log("ANALYZE", f"API Error on retry: {str(e)}.")
+
+        if issues is None:
+            self._log("ANALYZE", "LLM output was still not parseable JSON. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
         return issues
